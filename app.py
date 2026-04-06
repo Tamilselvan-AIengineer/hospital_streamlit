@@ -2,10 +2,10 @@ import streamlit as st
 import json
 from datetime import date
 
-# ---------- PAGE CONFIG ----------
-st.set_page_config(page_title="NeoVitals HMS", layout="wide")
+# ---------- CONFIG ----------
+st.set_page_config(page_title="NeoVitals Patient", layout="wide")
 
-# ---------- LOAD / SAVE ----------
+# ---------- JSON ----------
 def load_data(file):
     try:
         with open(file, 'r') as f:
@@ -17,161 +17,175 @@ def save_data(file, data):
     with open(file, 'w') as f:
         json.dump(data, f, indent=4)
 
-# ---------- CUSTOM CSS ----------
+# ---------- SESSION ----------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user = ""
+
+# ---------- CSS ----------
 st.markdown("""
 <style>
-body {background-color: #f5f7fa;}
-.sidebar .sidebar-content {background-color: #0e1117;}
-h1, h2, h3 {color: #0e1117;}
+.main {background-color:#f5f7fa;}
+.sidebar .sidebar-content {background:#0e1117; color:white;}
 .card {
-    background: white;
-    padding: 20px;
-    border-radius: 10px;
-    box-shadow: 0px 2px 8px rgba(0,0,0,0.1);
+    background:white;
+    padding:20px;
+    border-radius:12px;
+    box-shadow:0px 4px 10px rgba(0,0,0,0.1);
 }
-.metric {
-    text-align: center;
-    padding: 10px;
-    border-radius: 10px;
-    background: #e3f2fd;
+.title {
+    font-size:22px;
+    font-weight:bold;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------- SIDEBAR ----------
 st.sidebar.title("🏥 NeoVitals")
-menu = st.sidebar.radio("Navigation", [
-    "Login",
-    "Register",
-    "Dashboard",
-    "Book Appointment",
-    "View Appointments",
-    "Search Patient"
-])
+
+menu = ["Login", "Register"]
+
+if st.session_state.logged_in:
+    menu = ["Dashboard", "Book Appointment", "My Appointments", "My Profile", "Search"]
+
+choice = st.sidebar.radio("Menu", menu)
 
 # ---------- LOGIN ----------
-if menu == "Login":
-    st.title("🔐 Login")
+if choice == "Login":
+    st.title("🔐 Patient Login")
 
-    col1, col2 = st.columns([1,1])
+    username = st.text_input("Enter Name")
+    if st.button("Login"):
+        patients = load_data("patients.json")
 
-    with col1:
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+        user = next((p for p in patients if p["name"] == username), None)
 
-        if st.button("Login"):
-            if username == "admin" and password == "123":
-                st.success("Login Successful")
-            else:
-                st.error("Invalid Credentials")
+        if user:
+            st.session_state.logged_in = True
+            st.session_state.user = user
+            st.success("Login Successful")
+        else:
+            st.error("Patient not found. Register first.")
 
-# ---------- PATIENT REGISTRATION ----------
-elif menu == "Register":
-    st.title("📝 Patient Registration")
+# ---------- REGISTER ----------
+elif choice == "Register":
+    st.title("📝 Register as Patient")
 
-    with st.form("register_form"):
-        col1, col2 = st.columns(2)
+    name = st.text_input("Name")
+    age = st.number_input("Age", min_value=0)
+    gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+    phone = st.text_input("Phone")
 
-        with col1:
-            name = st.text_input("Name")
-            age = st.number_input("Age", min_value=0)
-        with col2:
-            gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-            phone = st.text_input("Phone")
+    if st.button("Register"):
+        patients = load_data("patients.json")
 
-        submit = st.form_submit_button("Register")
+        patient = {
+            "id": len(patients) + 1,
+            "name": name,
+            "age": age,
+            "gender": gender,
+            "phone": phone
+        }
 
-        if submit:
-            if not name:
-                st.error("Name is required")
-            else:
-                patients = load_data("patients.json")
+        patients.append(patient)
+        save_data("patients.json", patients)
 
-                patient = {
-                    "id": len(patients) + 1,
-                    "name": name,
-                    "age": age,
-                    "gender": gender,
-                    "phone": phone
-                }
-
-                patients.append(patient)
-                save_data("patients.json", patients)
-
-                st.success(f"Patient Registered (ID: {patient['id']})")
+        st.success("Registered Successfully. Now login.")
 
 # ---------- DASHBOARD ----------
-elif menu == "Dashboard":
-    st.title("📊 Patient Dashboard")
+elif choice == "Dashboard":
+    user = st.session_state.user
+    st.title(f"👋 Welcome {user['name']}")
 
-    patients = load_data("patients.json")
     appointments = load_data("appointments.json")
+    my_appts = [a for a in appointments if a["patient_id"] == user["id"]]
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric("Total Patients", len(patients))
-    col2.metric("Appointments", len(appointments))
-    col3.metric("System Status", "Active")
+    col1.metric("My Appointments", len(my_appts))
+    col2.metric("Age", user["age"])
+    col3.metric("Status", "Active")
 
-    st.markdown("### 👤 Patient List")
-    st.dataframe(patients)
+    st.markdown("### 📅 Upcoming Appointments")
 
-# ---------- BOOK APPOINTMENT ----------
-elif menu == "Book Appointment":
+    if my_appts:
+        st.dataframe(my_appts)
+    else:
+        st.info("No appointments yet")
+
+# ---------- BOOK ----------
+elif choice == "Book Appointment":
     st.title("📅 Book Appointment")
 
-    patients = load_data("patients.json")
+    user = st.session_state.user
 
-    if len(patients) == 0:
-        st.warning("No patients available. Register first.")
-    else:
-        patient_names = [p["name"] for p in patients]
-        selected_patient = st.selectbox("Select Patient", patient_names)
+    doctor = st.selectbox("Select Doctor", ["Dr. Smith", "Dr. John", "Dr. Priya"])
+    date_input = st.date_input("Choose Date", min_value=date.today())
 
-        doctor = st.text_input("Doctor Name")
-        appointment_date = st.date_input("Date", min_value=date.today())
+    reason = st.text_area("Reason for Visit")
 
-        if st.button("Book"):
-            patient_id = next(p["id"] for p in patients if p["name"] == selected_patient)
+    if st.button("Confirm Booking"):
+        appointments = load_data("appointments.json")
 
-            appointments = load_data("appointments.json")
+        appointment = {
+            "patient_id": user["id"],
+            "patient_name": user["name"],
+            "doctor": doctor,
+            "date": str(date_input),
+            "reason": reason
+        }
 
-            appointment = {
-                "patient_id": patient_id,
-                "patient_name": selected_patient,
-                "doctor": doctor,
-                "date": str(appointment_date)
-            }
+        appointments.append(appointment)
+        save_data("appointments.json", appointments)
 
-            appointments.append(appointment)
-            save_data("appointments.json", appointments)
+        st.success("Appointment Booked Successfully")
 
-            st.success("Appointment Booked")
+# ---------- MY APPOINTMENTS ----------
+elif choice == "My Appointments":
+    st.title("📋 My Appointments")
 
-# ---------- VIEW APPOINTMENTS ----------
-elif menu == "View Appointments":
-    st.title("📋 Appointments")
-
+    user = st.session_state.user
     appointments = load_data("appointments.json")
 
-    if len(appointments) == 0:
-        st.info("No appointments found")
+    my_appts = [a for a in appointments if a["patient_id"] == user["id"]]
+
+    if my_appts:
+        st.dataframe(my_appts)
+
+        cancel_id = st.number_input("Enter index to cancel", min_value=0)
+
+        if st.button("Cancel Appointment"):
+            try:
+                del my_appts[cancel_id]
+                save_data("appointments.json", appointments)
+                st.success("Cancelled")
+            except:
+                st.error("Invalid selection")
+
     else:
-        st.dataframe(appointments)
+        st.info("No appointments found")
 
-# ---------- SEARCH PATIENT ----------
-elif menu == "Search Patient":
-    st.title("🔍 Search Patient")
+# ---------- PROFILE ----------
+elif choice == "My Profile":
+    st.title("👤 My Profile")
 
-    search = st.text_input("Enter Patient Name")
+    user = st.session_state.user
+
+    st.write(user)
+
+# ---------- SEARCH ----------
+elif choice == "Search":
+    st.title("🔍 Search Your Record")
+
+    search = st.text_input("Search your name")
 
     patients = load_data("patients.json")
 
-    results = [p for p in patients if search.lower() in p["name"].lower()]
+    result = [p for p in patients if search.lower() in p["name"].lower()]
 
     if search:
-        if results:
-            st.success("Patient Found")
-            st.dataframe(results)
+        if result:
+            st.success("Record Found")
+            st.dataframe(result)
         else:
-            st.error("No patient found")
+            st.error("No record found")
